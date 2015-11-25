@@ -2,8 +2,10 @@ package paralyze
 
 import "sync"
 
+type Paralyzable func() (interface{}, error)
+
 // Paralyze parallelizes a function and returns two slices.
-func Paralyze(funcs ...func() (interface{}, error)) ([]interface{}, []error) {
+func Paralyze(funcs ...Paralyzable) ([]interface{}, []error) {
 	var wg sync.WaitGroup
 	results := make([]interface{}, len(funcs))
 	errors := make([]error, len(funcs))
