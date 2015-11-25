@@ -1,4 +1,4 @@
-package paralyzer
+package paralyze
 
 import "sync"
 
