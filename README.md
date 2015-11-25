@@ -5,7 +5,7 @@ parallelize things
 how to get
 ------------
 
-    go get github.com/gocql/gocql
+    go get github.com/i/paralyze
 
 how to do
 ---------
