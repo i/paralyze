@@ -9,35 +9,20 @@ func Paralyze(funcs ...Paralyzable) ([]interface{}, []error) {
 	var wg sync.WaitGroup
 	results := make([]interface{}, len(funcs))
 	errors := make([]error, len(funcs))
+
+	wg.Add(len(funcs))
+
 	for i, fn := range funcs {
-		wg.Add(1)
-		go func(i int, fn func() (chan interface{}, chan error)) {
+		go func(i int, fn Paralyzable) {
 			defer wg.Done()
-			resCh, errCh := fn()
-			select {
-			case res := <-resCh:
-				results[i] = res
-			case err := <-errCh:
+			if res, err := fn(); err != nil {
 				errors[i] = err
+			} else {
+				results[i] = res
 			}
-		}(i, convert(fn))
+		}(i, fn)
 	}
+
 	wg.Wait()
 	return results, errors
-}
-
-func convert(fn func() (interface{}, error)) func() (chan interface{}, chan error) {
-	return func() (chan interface{}, chan error) {
-		resCh := make(chan interface{})
-		errCh := make(chan error)
-		go func() {
-			res, err := fn()
-			if err != nil {
-				errCh <- err
-			} else {
-				resCh <- res
-			}
-		}()
-		return resCh, errCh
-	}
 }
