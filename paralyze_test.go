@@ -2,8 +2,11 @@ package paralyze
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"golang.org/x/net/context"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,4 +53,33 @@ func TestParalyzeWithTimeout(t *testing.T) {
 	assert.Error(t, errs[0])
 	assert.Nil(t, errs[1])
 	assert.Equal(t, someError, errs[2])
+}
+
+func TestParalyzeWithCtx(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	results, errors := ParalyzeWithContext(
+		ctx,
+		fnCreator(500*time.Millisecond),
+		fnCreator(1200*time.Millisecond),
+	)
+
+	assert.Equal(t, "success", results[0])
+	assert.NoError(t, errors[0])
+
+	assert.Nil(t, results[1])
+	assert.Error(t, errors[1])
+}
+
+func fnCreator(wait time.Duration) ParalyzableCtx {
+	return func(ctx context.Context) (interface{}, error) {
+		select {
+		case <-time.After(wait):
+			return "success", nil
+		case <-ctx.Done():
+			// clean up resources
+			return nil, fmt.Errorf("timed out")
+		}
+	}
 }

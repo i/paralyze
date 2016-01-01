@@ -4,12 +4,19 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"golang.org/x/net/context"
 )
 
 // Paralyzable is a type of function that can be paralyzed. Since most
 // functions don't carry this signature, a common pattern is to wrap an
 // existing function in a Paralyzable function.
 type Paralyzable func() (interface{}, error)
+
+// ParalyzableCtx is the same as a Paralyzable function, except it accepts a
+// context.Context. Functions that implement this type should respect the
+// documentation found here: https://godoc.org/golang.org/x/net/context
+type ParalyzableCtx func(context.Context) (interface{}, error)
 
 // General errors that can be returned from the paralyze package
 var (
@@ -65,6 +72,25 @@ func ParalyzeWithCancel(cancel <-chan struct{}, funcs ...Paralyzable) ([]interfa
 				errors[i] = ErrCanceled
 			}
 		}(i, convert(fn))
+	}
+	wg.Wait()
+	return results, errors
+}
+
+// ParalyzeWithContext takes a slice of functions that accept a
+// context.Context. These functions are responsible for releasing resources
+// (closing connections, etc.) and should respect ctx.Done().
+func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interface{}, []error) {
+	var wg sync.WaitGroup
+	results := make([]interface{}, len(funcs))
+	errors := make([]error, len(funcs))
+
+	wg.Add(len(funcs))
+	for i, fn := range funcs {
+		go func(i int, fn ParalyzableCtx) {
+			defer wg.Done()
+			results[i], errors[i] = fn(ctx)
+		}(i, fn)
 	}
 	wg.Wait()
 	return results, errors
