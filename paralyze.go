@@ -1,16 +1,58 @@
 package paralyze
 
-import "sync"
+import (
+	"errors"
+	"sync"
+	"time"
+)
 
+// Paralyzable is a type of function that can be paralyzed. Since most
+// functions don't carry this signature, a common pattern is to wrap an
+// existing function in a Paralyzable function.
 type Paralyzable func() (interface{}, error)
 
-// Paralyze parallelizes a function and returns two slices.
-func Paralyze(funcs ...Paralyzable) ([]interface{}, []error) {
+// General errors that can be returned from the paralyze package
+var (
+	ErrTimedOut = errors.New("timed out")
+	ErrCanceled = errors.New("canceled")
+)
+
+// Paralyze parallelizes a function and returns a slice containing results and
+// a slice containing errors. The results at each index are mutually exclusive,
+// that is if results[i] is not nil, errors[i] is guaranteed to be nil.
+func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
+	return ParalyzeWithTimeout(0, funcs...)
+}
+
+// ParalyzeWithTimeout does the same as Paralyze, but it accepts a timeout. If
+// the timeout is exceeded before all paralyzed functions are complete, the
+// results will be discarded and errors will be set with the value ErrTimedOut.
+func ParalyzeWithTimeout(timeout time.Duration, funcs ...Paralyzable) ([]interface{}, []error) {
+	cancel := make(chan struct{})
+	if timeout == 0 {
+		return ParalyzeWithCancel(cancel, funcs...)
+	}
+	go time.AfterFunc(timeout, func() { close(cancel) })
+
+	results, errors := ParalyzeWithCancel(cancel, funcs...)
+	for i, err := range errors {
+		if err == ErrCanceled {
+			errors[i] = ErrTimedOut
+		}
+	}
+	return results, errors
+}
+
+// ParalyzeWithCancel does the same as Paralyze, but it accepts a channel that
+// allows the function to respond before the paralyzed functions are finished.
+// Any functions that are still oustanding will have errors set as ErrCanceled.
+func ParalyzeWithCancel(cancel <-chan struct{}, funcs ...Paralyzable) ([]interface{}, []error) {
 	var wg sync.WaitGroup
 	results := make([]interface{}, len(funcs))
 	errors := make([]error, len(funcs))
+	wg.Add(len(funcs))
+
 	for i, fn := range funcs {
-		wg.Add(1)
 		go func(i int, fn func() (chan interface{}, chan error)) {
 			defer wg.Done()
 			resCh, errCh := fn()
@@ -19,6 +61,8 @@ func Paralyze(funcs ...Paralyzable) ([]interface{}, []error) {
 				results[i] = res
 			case err := <-errCh:
 				errors[i] = err
+			case <-cancel:
+				errors[i] = ErrCanceled
 			}
 		}(i, convert(fn))
 	}
