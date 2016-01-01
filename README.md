@@ -72,3 +72,40 @@ func main() {
 }
 
 ```
+
+parallelization using context
+---------
+
+```go
+package main
+
+import (
+  "fmt"
+  "time"
+
+  "golang.org/x/net/context"
+  "golang.org/x/net/context/ctxhttp"
+
+  "github.com/i/paralyze"
+)
+
+func newRequestMaker(url string) ParalyzableCtx {
+  return func(ctx context.Context) (interface{}, error) {
+    return ctxhttp.Get(ctx, nil, url)
+  }
+}
+
+func main() {
+  ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+  defer cancel()
+
+  responses, errors := paralyze.ParalyzeWithContext(
+    ctx,
+    newRequestMaker("https://google.com"),
+    newRequestMaker("http://rms.sexy"),
+  )
+
+  // do something great
+}
+
+```
