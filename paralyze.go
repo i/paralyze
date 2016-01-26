@@ -31,6 +31,29 @@ func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
 	return ParalyzeWithTimeout(0, funcs...)
 }
 
+// ParalyzeM parallelizes a map of strings to functions. The return type is a
+// map of keys to a map containing two keys: res and err.
+func ParalyzeM(m map[string]Paralyzable) map[string]map[string]interface{} {
+	var names []string
+	var fns []Paralyzable
+
+	for name, fn := range m {
+		names = append(names, name)
+		fns = append(fns, fn)
+	}
+
+	res := make(map[string]map[string]interface{})
+	results, errs := Paralyze(fns...)
+	for i := range results {
+		name := names[i]
+		res[name] = make(map[string]interface{})
+		res[name]["res"] = results[i]
+		res[name]["err"] = errs[i]
+	}
+
+	return res
+}
+
 // ParalyzeWithTimeout does the same as Paralyze, but it accepts a timeout. If
 // the timeout is exceeded before all paralyzed functions are complete, the
 // results will be discarded and errors will be set with the value ErrTimedOut.

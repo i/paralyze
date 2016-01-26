@@ -72,6 +72,24 @@ func TestParalyzeWithCtx(t *testing.T) {
 	assert.Error(t, errors[1])
 }
 
+func TestParalyzeM(t *testing.T) {
+	errBadThing := errors.New("bad thing")
+
+	results := ParalyzeM(map[string]Paralyzable{
+		"foo": func() (interface{}, error) {
+			return "foo", nil
+		},
+		"err": func() (interface{}, error) {
+			return nil, errBadThing
+		},
+	})
+
+	assert.Equal(t, "foo", results["foo"]["res"], "foo")
+	assert.Nil(t, results["foo"]["err"])
+	assert.Nil(t, results["err"]["res"])
+	assert.Equal(t, errBadThing, results["err"]["err"])
+}
+
 func fnCreator(wait time.Duration) ParalyzableCtx {
 	return func(ctx context.Context) (interface{}, error) {
 		select {
