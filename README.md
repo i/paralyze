@@ -40,6 +40,36 @@ func main() {
 
 ```
 
+parallelization with a map
+---------
+
+```go
+package main
+
+import (
+  "fmt"
+  "time"
+
+  "github.com/i/paralyze"
+)
+
+func main() {
+  results := ParalyzeM(map[string]Paralyzable{
+    "goodie": func() (interface{}, error) {
+      return "wowe!", nil
+    },
+    "bad": func() (interface{}, error) {
+      return nil, fmt.Errorf("you're the worst")
+    },
+  })
+
+  fmt.Println(results["goodie"]["res"]) // prints wowe!
+  fmt.Println(results["goodie"]["err"]) // prints <nil>
+  fmt.Println(results["bad"]["res"])    // prints <nil>
+  fmt.Println(results["bad"]["err"])    // prints you're the worst!
+}
+
+```
 
 parallelization with timeouts
 ---------
