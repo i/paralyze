@@ -8,26 +8,26 @@ var (
 
 func BenchmarkWithChannelAlloc(test *testing.B) {
 	for i := 0; i < test.N; i++ {
-		ParalyzeWithTimeout(0, []Paralyzable{
+		ParalyzeWithTimeout(0,
 			fasterFn,
 			fasterFn,
 			fasterFn,
 			fasterFn,
 			fasterFn,
 			fasterFn,
-		}...)
+		)
 	}
 }
 
 func BenchmarkWithoutChannelAlloc(test *testing.B) {
 	for i := 0; i < test.N; i++ {
-		Paralyze([]Paralyzable{
+		Paralyze(
 			fasterFn,
 			fasterFn,
 			fasterFn,
 			fasterFn,
 			fasterFn,
 			fasterFn,
-		}...)
+		)
 	}
 }

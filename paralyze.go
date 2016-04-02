@@ -25,8 +25,8 @@ var (
 )
 
 // Paralyze parallelizes a function and returns a slice containing results and
-// a slice containing errors. The results at each index are mutually exclusive,
-// that is if results[i] is not nil, errors[i] is guaranteed to be nil.
+// a slice containing errors. The results at each index are not mutually exclusive,
+// that is if results[i] is not nil, errors[i] is not guaranteed to be nil.
 func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
 	var wg sync.WaitGroup
 	results = make([]interface{}, len(funcs))
@@ -36,9 +36,7 @@ func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
 	for i, fn := range funcs {
 		go func(i int, fn Paralyzable) {
 			defer wg.Done()
-			res, err := fn()
-			results[i] = res
-			errors[i] = err
+			results[i], errors[i] = fn()
 		}(i, fn)
 	}
 	wg.Wait()
