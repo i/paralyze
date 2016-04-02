@@ -28,7 +28,21 @@ var (
 // a slice containing errors. The results at each index are mutually exclusive,
 // that is if results[i] is not nil, errors[i] is guaranteed to be nil.
 func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
-	return paralyzeNoAlloc(funcs...)
+	var wg sync.WaitGroup
+	results = make([]interface{}, len(funcs))
+	errors = make([]error, len(funcs))
+	wg.Add(len(funcs))
+
+	for i, fn := range funcs {
+		go func(i int, fn Paralyzable) {
+			defer wg.Done()
+			res, err := fn()
+			results[i] = res
+			errors[i] = err
+		}(i, fn)
+	}
+	wg.Wait()
+	return results, errors
 }
 
 // ParalyzeM parallelizes a map of strings to functions. The return type is a
@@ -52,26 +66,6 @@ func ParalyzeM(m map[string]Paralyzable) map[string]map[string]interface{} {
 	}
 
 	return res
-}
-
-// paralyzeNoAlloc is what is called when there is no timeout or contexted
-// needed. It does not allocate any channels.
-func paralyzeNoAlloc(funcs ...Paralyzable) ([]interface{}, []error) {
-	var wg sync.WaitGroup
-	results := make([]interface{}, len(funcs))
-	errors := make([]error, len(funcs))
-	wg.Add(len(funcs))
-
-	for i, fn := range funcs {
-		go func(i int, fn Paralyzable) {
-			defer wg.Done()
-			res, err := fn()
-			results[i] = res
-			errors[i] = err
-		}(i, fn)
-	}
-	wg.Wait()
-	return results, errors
 }
 
 // ParalyzeWithTimeout does the same as Paralyze, but it accepts a timeout. If
