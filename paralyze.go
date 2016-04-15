@@ -134,19 +134,11 @@ func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interf
 	return results, errors
 }
 
-// SpeculativeOptions adds additional optional arguments to Speculate
-type SpeculativeOptions struct {
-	// Timeout specifies the time to wait before firing off secondary function.
-	// If 0, both functions will be executed simultaneously. Defaults to 0.
-	Timeout time.Duration
-
-	// FallBackOnError
-	FallBackOnError bool
-}
-
-// Speculate calls fn1, and waits for the duration of timeout. If fn1 has not
-// yet completed its execution, fn2 will be called. The two functions then race
-// until either of them finishes.
+// Speculate calls each of the functions provided until one of them succeeds.
+// After specifies the time to wait before calling the next function. If
+// fallbackOnError is enabled, a function that returns an error will be
+// ignored. If fallbackOnError is enabled and all functions fail, the last
+// returned error is returned.
 func Speculate(after time.Duration, fallbackOnError bool, fn Paralyzable, fallbacks ...Paralyzable) (interface{}, error) {
 	if after <= 0 {
 		return nil, ErrInvalidTimeout
@@ -155,9 +147,9 @@ func Speculate(after time.Duration, fallbackOnError bool, fn Paralyzable, fallba
 	t := time.NewTicker(after)
 	defer t.Stop()
 
-	ch := make(chan resErr)
-
 	fns := append([]Paralyzable{fn}, fallbacks...)
+	ch := make(chan resErr, len(fns))
+
 	for i, fn := range fns {
 		// sigh
 		i, fn := i, fn
