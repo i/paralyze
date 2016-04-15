@@ -20,8 +20,11 @@ type ParalyzableCtx func(context.Context) (interface{}, error)
 
 // General errors that can be returned from the paralyze package
 var (
-	ErrTimedOut = errors.New("timed out")
-	ErrCanceled = errors.New("canceled")
+	ErrTimedOut       = errors.New("timed out")
+	ErrCanceled       = errors.New("canceled")
+	ErrInvalidTimeout = errors.New("invalid timeout")
+
+	errParalyzeError = errors.New("internal problem with paralyze, please file an issue")
 )
 
 // Paralyze parallelizes a function and returns a slice containing results and
@@ -129,6 +132,67 @@ func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interf
 	}
 	wg.Wait()
 	return results, errors
+}
+
+// SpeculativeOptions adds additional optional arguments to Speculate
+type SpeculativeOptions struct {
+	// Timeout specifies the time to wait before firing off secondary function.
+	// If 0, both functions will be executed simultaneously. Defaults to 0.
+	Timeout time.Duration
+
+	// FallBackOnError
+	FallBackOnError bool
+}
+
+// Speculate calls fn1, and waits for the duration of timeout. If fn1 has not
+// yet completed its execution, fn2 will be called. The two functions then race
+// until either of them finishes.
+func Speculate(after time.Duration, fallbackOnError bool, fn Paralyzable, fallbacks ...Paralyzable) (interface{}, error) {
+	if after <= 0 {
+		return nil, ErrInvalidTimeout
+	}
+
+	t := time.NewTicker(after)
+	defer t.Stop()
+
+	ch := make(chan resErr)
+
+	fns := append([]Paralyzable{fn}, fallbacks...)
+	for i, fn := range fns {
+		// sigh
+		i, fn := i, fn
+
+		go func() {
+			ch <- makeReq(fn)
+		}()
+
+		select {
+		case resErr := <-ch:
+			if fallbackOnError {
+				if resErr.err != nil {
+					if i < len(fns) {
+						continue
+					}
+				}
+			}
+			return resErr.res, resErr.err
+		case <-t.C:
+			continue
+		}
+	}
+
+	// This line should never be touched
+	return nil, errParalyzeError
+}
+
+func makeReq(fn Paralyzable) resErr {
+	res, err := fn()
+	return resErr{res, err}
+}
+
+type resErr struct {
+	res interface{}
+	err error
 }
 
 func convert(fn func() (interface{}, error)) func() (chan interface{}, chan error) {
