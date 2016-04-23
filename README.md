@@ -1,5 +1,7 @@
 paralyze
 ========
+[![GoDoc](http://godoc.org/github.com/i/paralyze?status.png)](http://godoc.org/github.com/i/paralyze)
+
 parallelize things
 
 how to get
