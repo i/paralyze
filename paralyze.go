@@ -43,9 +43,14 @@ func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
 	return results, errors
 }
 
+type ResErr struct {
+	Res interface{}
+	Err error
+}
+
 // ParalyzeM parallelizes a map of strings to functions. The return type is a
 // map of keys to a map containing two keys: res and err.
-func ParalyzeM(m map[string]Paralyzable) map[string]map[string]interface{} {
+func ParalyzeM(m map[string]Paralyzable) map[string]ResErr {
 	var names []string
 	var fns []Paralyzable
 
@@ -54,13 +59,14 @@ func ParalyzeM(m map[string]Paralyzable) map[string]map[string]interface{} {
 		fns = append(fns, fn)
 	}
 
-	res := make(map[string]map[string]interface{})
+	res := make(map[string]ResErr)
 	results, errs := Paralyze(fns...)
 	for i := range results {
 		name := names[i]
-		res[name] = make(map[string]interface{})
-		res[name]["res"] = results[i]
-		res[name]["err"] = errs[i]
+		res[name] = ResErr{
+			Res: results[i],
+			Err: errs[i],
+		}
 	}
 
 	return res
