@@ -84,10 +84,10 @@ func TestParalyzeM(t *testing.T) {
 		},
 	})
 
-	assert.Equal(t, "foo", results["foo"]["res"], "foo")
-	assert.Nil(t, results["foo"]["err"])
-	assert.Nil(t, results["err"]["res"])
-	assert.Equal(t, errBadThing, results["err"]["err"])
+	assert.Equal(t, "foo", results["foo"].Res, "foo")
+	assert.Nil(t, results["foo"].Err)
+	assert.Nil(t, results["err"].Res)
+	assert.Equal(t, errBadThing, results["err"].Err)
 }
 
 func fnCreator(wait time.Duration) ParalyzableCtx {
