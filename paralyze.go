@@ -76,10 +76,11 @@ func ParalyzeM(m map[string]Paralyzable) map[string]ResErr {
 // the timeout is exceeded before all paralyzed functions are complete, the
 // results will be discarded and errors will be set with the value ErrTimedOut.
 func ParalyzeWithTimeout(timeout time.Duration, funcs ...Paralyzable) ([]interface{}, []error) {
-	cancel := make(chan struct{})
 	if timeout == 0 {
-		return ParalyzeWithCancel(cancel, funcs...)
+		return Paralyze(funcs...)
 	}
+
+	cancel := make(chan struct{})
 	go time.AfterFunc(timeout, func() { close(cancel) })
 
 	results, errors := ParalyzeWithCancel(cancel, funcs...)
