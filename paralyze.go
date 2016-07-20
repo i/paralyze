@@ -74,7 +74,8 @@ func ParalyzeM(m map[string]Paralyzable) map[string]ResErr {
 
 // ParalyzeWithTimeout does the same as Paralyze, but it accepts a timeout. If
 // the timeout is exceeded before all paralyzed functions are complete, the
-// results will be discarded and errors will be set with the value ErrTimedOut.
+// unfinished results will be discarded without being cancelled. Any complete
+// tasks will be unaffected.
 func ParalyzeWithTimeout(timeout time.Duration, funcs ...Paralyzable) ([]interface{}, []error) {
 	if timeout == 0 {
 		return Paralyze(funcs...)
