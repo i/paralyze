@@ -141,8 +141,8 @@ func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interf
 
 func convert(fn func() (interface{}, error)) func() (chan interface{}, chan error) {
 	return func() (chan interface{}, chan error) {
-		resCh := make(chan interface{})
-		errCh := make(chan error)
+		resCh := make(chan interface{}, 1)
+		errCh := make(chan error, 1)
 		go func() {
 			res, err := fn()
 			if err != nil {
