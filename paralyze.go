@@ -20,8 +20,11 @@ type ParalyzableCtx func(context.Context) (interface{}, error)
 
 // General errors that can be returned from the paralyze package
 var (
-	ErrTimedOut = errors.New("timed out")
-	ErrCanceled = errors.New("canceled")
+	ErrTimedOut       = errors.New("timed out")
+	ErrCanceled       = errors.New("canceled")
+	ErrInvalidTimeout = errors.New("invalid timeout")
+
+	errParalyzeError = errors.New("internal problem with paralyze, please file an issue")
 )
 
 // Paralyze parallelizes a function and returns a slice containing results and
@@ -137,6 +140,59 @@ func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interf
 	}
 	wg.Wait()
 	return results, errors
+}
+
+// Speculate calls each of the functions provided until one of them succeeds.
+// After specifies the time to wait before calling the next function. If
+// fallbackOnError is enabled, a function that returns an error will be
+// ignored. If fallbackOnError is enabled and all functions fail, the last
+// returned error is returned.
+func Speculate(after time.Duration, fallbackOnError bool, fn Paralyzable, fallbacks ...Paralyzable) (interface{}, error) {
+	if after <= 0 {
+		return nil, ErrInvalidTimeout
+	}
+
+	t := time.NewTicker(after)
+	defer t.Stop()
+
+	fns := append([]Paralyzable{fn}, fallbacks...)
+	ch := make(chan resErr, len(fns))
+
+	for i, fn := range fns {
+		// sigh
+		i, fn := i, fn
+
+		go func() {
+			ch <- makeReq(fn)
+		}()
+
+		select {
+		case resErr := <-ch:
+			if fallbackOnError {
+				if resErr.err != nil {
+					if i < len(fns) {
+						continue
+					}
+				}
+			}
+			return resErr.res, resErr.err
+		case <-t.C:
+			continue
+		}
+	}
+
+	// This line should never be touched
+	return nil, errParalyzeError
+}
+
+func makeReq(fn Paralyzable) resErr {
+	res, err := fn()
+	return resErr{res, err}
+}
+
+type resErr struct {
+	res interface{}
+	err error
 }
 
 func convert(fn func() (interface{}, error)) func() (chan interface{}, chan error) {
