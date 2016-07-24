@@ -103,14 +103,13 @@ func ParalyzeWithCancel(cancel <-chan struct{}, funcs ...Paralyzable) ([]interfa
 	wg.Add(len(funcs))
 
 	for i, fn := range funcs {
-		go func(i int, fn func() (chan interface{}, chan error)) {
+		go func(i int, fn func() chan ResErr) {
 			defer wg.Done()
-			resCh, errCh := fn()
+			ch := fn()
 			select {
-			case res := <-resCh:
-				results[i] = res
-			case err := <-errCh:
-				errors[i] = err
+			case resErr := <-ch:
+				results[i] = resErr.Res
+				errors[i] = resErr.Err
 			case <-cancel:
 				errors[i] = ErrCanceled
 			}
@@ -139,18 +138,13 @@ func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interf
 	return results, errors
 }
 
-func convert(fn func() (interface{}, error)) func() (chan interface{}, chan error) {
-	return func() (chan interface{}, chan error) {
-		resCh := make(chan interface{}, 1)
-		errCh := make(chan error, 1)
+func convert(fn func() (interface{}, error)) func() chan ResErr {
+	return func() chan ResErr {
+		ch := make(chan ResErr, 1)
 		go func() {
 			res, err := fn()
-			if err != nil {
-				errCh <- err
-			} else {
-				resCh <- res
-			}
+			ch <- ResErr{res, err}
 		}()
-		return resCh, errCh
+		return ch
 	}
 }
