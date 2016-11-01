@@ -33,13 +33,26 @@ func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
 	errors = make([]error, len(funcs))
 	wg.Add(len(funcs))
 
+	var panik interface{}
+	var panikOnce sync.Once
+
 	for i, fn := range funcs {
 		go func(i int, fn Paralyzable) {
+			defer func() {
+				if r := recover(); r != nil {
+					panikOnce.Do(func() { panik = r })
+				}
+			}()
 			defer wg.Done()
 			results[i], errors[i] = fn()
 		}(i, fn)
 	}
 	wg.Wait()
+
+	if panik != nil {
+		panic(panik)
+	}
+
 	return results, errors
 }
 
