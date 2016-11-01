@@ -101,3 +101,14 @@ func fnCreator(wait time.Duration) ParalyzableCtx {
 		}
 	}
 }
+
+func TestParalyzePanic(t *testing.T) {
+	assert.Panics(t, func() {
+		Paralyze(
+			func() (interface{}, error) {
+				panic("whoops")
+				return nil, nil
+			},
+		)
+	})
+}
