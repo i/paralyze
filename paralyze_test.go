@@ -1,12 +1,11 @@
 package paralyze
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/stretchr/testify/assert"
 )
