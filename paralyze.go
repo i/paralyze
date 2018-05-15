@@ -1,11 +1,10 @@
 package paralyze
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
-
-	"golang.org/x/net/context"
 )
 
 // Paralyzable is a type of function that can be paralyzed. Since most
@@ -15,7 +14,7 @@ type Paralyzable func() (interface{}, error)
 
 // ParalyzableCtx is the same as a Paralyzable function, except it accepts a
 // context.Context. Functions that implement this type should respect the
-// documentation found here: https://godoc.org/golang.org/x/net/context
+// documentation found here: https://godoc.org/context
 type ParalyzableCtx func(context.Context) (interface{}, error)
 
 // General errors that can be returned from the paralyze package
