@@ -160,3 +160,39 @@ func convert(fn func() (interface{}, error)) func() chan ResErr {
 		return ch
 	}
 }
+
+type paralyzer struct {
+	maxConcurrency int
+}
+
+func ParalyzeLimit(limit int, tasks ...Paralyzable) ([]interface{}, []error) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, limit)
+	results := make([]interface{}, len(tasks))
+	errors := make([]error, len(tasks))
+	wg.Add(len(tasks))
+
+	var panik interface{}
+	var panikOnce sync.Once
+
+	for i, fn := range tasks {
+		sem <- struct{}{}
+		go func(i int, fn Paralyzable) {
+			defer func() {
+				wg.Done()
+				<-sem
+				if r := recover(); r != nil {
+					panikOnce.Do(func() { panik = r })
+				}
+			}()
+			results[i], errors[i] = fn()
+		}(i, fn)
+	}
+	wg.Wait()
+
+	if panik != nil {
+		panic(panik)
+	}
+
+	return results, errors
+}
