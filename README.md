@@ -141,3 +141,11 @@ func main() {
 }
 
 ```
+
+contibuting
+---------
+fork the repo and open a PR
+
+license
+---------
+MIT
