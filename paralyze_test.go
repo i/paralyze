@@ -13,7 +13,9 @@ import (
 var (
 	someError = errors.New("some error")
 
-	slowFn  = func() (interface{}, error) { time.Sleep(time.Second); return "ok", nil }
+	slowFnDuration = time.Second
+
+	slowFn  = func() (interface{}, error) { time.Sleep(slowFnDuration); return "ok", nil }
 	fastFn  = func() (interface{}, error) { return 55, nil }
 	errFn   = func() (interface{}, error) { return nil, someError }
 	panicFn = func() (interface{}, error) { panic("whoops") }
@@ -169,4 +171,31 @@ func TestParalyzeLimit(t *testing.T) {
 	assert.Nil(t, errs[0])
 	assert.Nil(t, errs[1])
 	assert.Equal(t, someError, errs[2])
+}
+
+func TestParalyzerWithContextAndLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Wait for Paralyzer to begin work, but cancel before third function returns
+	go func() {
+		select {
+		case <-time.After(slowFnDuration + slowFnDuration/2):
+			cancel()
+		}
+	}()
+
+	paralyzer := NewParalyzer(WithConcurrencyLimit(2))
+	results, errs := paralyzer.DoContext(ctx, slowFn, slowFn, slowFn)
+
+	assert.Equal(t, 3, len(results))
+	assert.Equal(t, 3, len(errs))
+
+	assert.Equal(t, "ok", results[0])
+	assert.Equal(t, "ok", results[1])
+	assert.Nil(t, results[2])
+
+	assert.Nil(t, errs[0])
+	assert.Nil(t, errs[1])
+	assert.Equal(t, context.Canceled, errs[2])
 }

@@ -23,36 +23,15 @@ var (
 	ErrCanceled = errors.New("canceled")
 )
 
+type ErrPanic struct{ panik interface{} }
+
+func (e *ErrPanic) Error() string { return "panicked" }
+
 // Paralyze parallelizes a function and returns a slice containing results and
 // a slice containing errors. The results at each index are not mutually exclusive,
 // that is if results[i] is not nil, errors[i] is not guaranteed to be nil.
 func Paralyze(funcs ...Paralyzable) (results []interface{}, errors []error) {
-	var wg sync.WaitGroup
-	results = make([]interface{}, len(funcs))
-	errors = make([]error, len(funcs))
-	wg.Add(len(funcs))
-
-	var panik interface{}
-	var panikOnce sync.Once
-
-	for i, fn := range funcs {
-		go func(i int, fn Paralyzable) {
-			defer func() {
-				if r := recover(); r != nil {
-					panikOnce.Do(func() { panik = r })
-				}
-			}()
-			defer wg.Done()
-			results[i], errors[i] = fn()
-		}(i, fn)
-	}
-	wg.Wait()
-
-	if panik != nil {
-		panic(panik)
-	}
-
-	return results, errors
+	return NewParalyzer().Do(funcs...)
 }
 
 type ResErr struct {
@@ -93,41 +72,42 @@ func ParalyzeWithTimeout(timeout time.Duration, funcs ...Paralyzable) ([]interfa
 		return Paralyze(funcs...)
 	}
 
-	cancel := make(chan struct{})
-	go time.AfterFunc(timeout, func() { close(cancel) })
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-	results, errors := ParalyzeWithCancel(cancel, funcs...)
+	results, errors := NewParalyzer().DoContext(ctx, funcs...)
 	for i, err := range errors {
-		if err == ErrCanceled {
+		if err == context.DeadlineExceeded {
 			errors[i] = ErrTimedOut
 		}
 	}
+
 	return results, errors
 }
 
 // ParalyzeWithCancel does the same as Paralyze, but it accepts a channel that
 // allows the function to respond before the paralyzed functions are finished.
 // Any functions that are still oustanding will have errors set as ErrCanceled.
-func ParalyzeWithCancel(cancel <-chan struct{}, funcs ...Paralyzable) ([]interface{}, []error) {
-	var wg sync.WaitGroup
-	results := make([]interface{}, len(funcs))
-	errors := make([]error, len(funcs))
-	wg.Add(len(funcs))
+func ParalyzeWithCancel(done <-chan struct{}, funcs ...Paralyzable) ([]interface{}, []error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	for i, fn := range funcs {
-		go func(i int, fn func() chan ResErr) {
-			defer wg.Done()
-			ch := fn()
+	go func() {
+		for {
 			select {
-			case resErr := <-ch:
-				results[i] = resErr.Res
-				errors[i] = resErr.Err
-			case <-cancel:
-				errors[i] = ErrCanceled
+			case <-done:
+				cancel()
 			}
-		}(i, convert(fn))
+		}
+	}()
+
+	results, errors := NewParalyzer().DoContext(ctx, funcs...)
+	for i, err := range errors {
+		if err == context.Canceled {
+			errors[i] = ErrCanceled
+		}
 	}
-	wg.Wait()
+
 	return results, errors
 }
 
@@ -135,59 +115,122 @@ func ParalyzeWithCancel(cancel <-chan struct{}, funcs ...Paralyzable) ([]interfa
 // context.Context. These functions are responsible for releasing resources
 // (closing connections, etc.) and should respect ctx.Done().
 func ParalyzeWithContext(ctx context.Context, funcs ...ParalyzableCtx) ([]interface{}, []error) {
-	var wg sync.WaitGroup
-	results := make([]interface{}, len(funcs))
-	errors := make([]error, len(funcs))
-
-	wg.Add(len(funcs))
-	for i, fn := range funcs {
-		go func(i int, fn ParalyzableCtx) {
-			defer wg.Done()
-			results[i], errors[i] = fn(ctx)
-		}(i, fn)
+	paralyzed := make([]Paralyzable, 0, len(funcs))
+	for _, f := range funcs {
+		f := f // Copy
+		paralyzed = append(paralyzed, func() (interface{}, error) { return f(ctx) })
 	}
-	wg.Wait()
-	return results, errors
+
+	return NewParalyzer().Do(paralyzed...)
 }
 
-func convert(fn func() (interface{}, error)) func() chan ResErr {
+func ParalyzeLimit(limit int, tasks ...Paralyzable) ([]interface{}, []error) {
+	return NewParalyzer(WithConcurrencyLimit(limit)).Do(tasks...)
+}
+
+type Paralyzer struct {
+	concurrency int
+}
+
+type Option func(p *Paralyzer) *Paralyzer
+
+func WithConcurrencyLimit(n int) Option {
+	return func(p *Paralyzer) *Paralyzer {
+		p.concurrency = n
+		return p
+	}
+}
+
+func NewParalyzer(opts ...Option) *Paralyzer {
+	p := new(Paralyzer)
+	for _, opt := range opts {
+		p = opt(p)
+	}
+	return p
+}
+
+func (p *Paralyzer) Do(funcs ...Paralyzable) ([]interface{}, []error) {
+	return p.DoContext(context.Background(), funcs...)
+}
+
+func convert(fn Paralyzable) func() chan ResErr {
 	return func() chan ResErr {
 		ch := make(chan ResErr, 1)
+
 		go func() {
-			res, err := fn()
+			var res interface{}
+			var err error
+
+			defer func() {
+				if r := recover(); r != nil {
+					ch <- ResErr{nil, &ErrPanic{r}}
+				}
+			}()
+
+			res, err = fn()
 			ch <- ResErr{res, err}
 		}()
+
 		return ch
 	}
 }
 
-type paralyzer struct {
-	maxConcurrency int
-}
-
-func ParalyzeLimit(limit int, tasks ...Paralyzable) ([]interface{}, []error) {
+func (p *Paralyzer) DoContext(
+	ctx context.Context,
+	funcs ...Paralyzable,
+) ([]interface{}, []error) {
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, limit)
-	results := make([]interface{}, len(tasks))
-	errors := make([]error, len(tasks))
-	wg.Add(len(tasks))
+	var sem chan struct{}
 
 	var panik interface{}
 	var panikOnce sync.Once
 
-	for i, fn := range tasks {
-		sem <- struct{}{}
-		go func(i int, fn Paralyzable) {
+	var numFuncs = len(funcs)
+
+	results := make([]interface{}, numFuncs)
+	errors := make([]error, numFuncs)
+	if p.concurrency > 0 {
+		sem = make(chan struct{}, p.concurrency)
+	} else {
+		sem = make(chan struct{}, numFuncs)
+	}
+
+	wg.Add(numFuncs)
+
+	for i, fn := range funcs {
+		sem <- struct{}{} // Acquire semaphore
+
+		go func(i int, fn func() chan ResErr) {
 			defer func() {
 				wg.Done()
-				<-sem
-				if r := recover(); r != nil {
-					panikOnce.Do(func() { panik = r })
-				}
+				<-sem // Release semaphore
 			}()
-			results[i], errors[i] = fn()
-		}(i, fn)
+
+			ch := fn()
+
+			select {
+			case <-ctx.Done():
+				errors[i] = ctx.Err()
+
+			case resErr := <-ch:
+				results[i] = resErr.Res
+				errors[i] = resErr.Err
+
+				switch resErr.Err.(type) {
+				// One of the paralyzable functions panicked.
+				// Catch it here and re-panic in the main go-routine.
+				case *ErrPanic:
+					e, ok := resErr.Err.(*ErrPanic)
+					if ok {
+						panikOnce.Do(func() {
+							panik = e.panik
+						})
+					}
+				}
+			}
+		}(i, convert(fn))
 	}
+
 	wg.Wait()
 
 	if panik != nil {
